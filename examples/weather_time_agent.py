@@ -126,21 +126,24 @@ def run_react_agent(question: str, max_steps: int = 5):
         num_ctx=8192,
     )
 
-    prompt_history = f"{SYSTEM_PROMPT}\n\nQuestion: {question}\nThought:"
+    # Initialize messages list with system prompt and user question
+    messages = [
+        ChatMessage(role="system", content=[{"type": "text", "text": SYSTEM_PROMPT}]),
+        ChatMessage(role="user", content=[{"type": "text", "text": question}]),
+    ]
     print(f"=== User Question: {question} ===\n")
 
     for step in range(max_steps):
-        # Format input using ChatMessage object
-        message = ChatMessage(
-            role="user",
-            content=[{"type": "text", "text": prompt_history}],
-        )
-
-        # Call model with stop sequence on Observation:
-        response = model([message], stop_sequences=["Observation:"])
+        # Call model with current message history
+        response = model(messages, stop_sequences=["Observation:"])
         llm_response = response.content
 
         print(f"Thought:{llm_response}")
+
+        # Record assistant response in message history
+        messages.append(
+            ChatMessage(role="assistant", content=[{"type": "text", "text": llm_response}])
+        )
 
         # Check for Final Answer termination condition
         if "Final Answer:" in llm_response:
@@ -159,22 +162,23 @@ def run_react_agent(question: str, max_steps: int = 5):
 
         # Execute Tool Call
         if action_name in TOOL_REGISTRY:
-            tool_func = TOOL_REGISTRY[action_name]
+            tool_obj = TOOL_REGISTRY[action_name]
             observation = (
-                tool_func(**action_input)
-                if isinstance(action_input, dict)
-                else tool_func(action_input)
+                tool_obj(**action_input)
+                if isinstance(action_input, dict) and action_input
+                else tool_obj()
             )
         else:
             observation = f"Error: Tool '{action_name}' is not registered."
 
         print(f"Observation: {observation}\n")
 
-        # Update prompt history for next iteration
-        prompt_history += f"{llm_response}\nObservation: {observation}\nThought:"
+        # Append observation back to message history for next turn
+        messages.append(
+            ChatMessage(role="user", content=[{"type": "text", "text": f"Observation: {observation}"}])
+        )
 
     print("[AGENT FAILED] Exceeded maximum step limit.")
-
 
 if __name__ == "__main__":
     run_react_agent("What is the current local time, and what is the weather in Kathmandu?")
